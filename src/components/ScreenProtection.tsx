@@ -116,7 +116,11 @@ export const ScreenProtection: React.FC<ScreenProtectionProps> = ({ enabled = fa
   return (
     <div
       id="screen-protection-shield"
-      className="fixed inset-0 bg-black z-[9999999] flex flex-col items-center justify-center p-6 text-center select-none"
+      onClick={() => {
+        setIsBlackout(false);
+        setBlackoutReason('');
+      }}
+      className="fixed inset-0 bg-black z-[9999999] flex flex-col items-center justify-center p-6 text-center select-none cursor-pointer"
       style={{ backgroundColor: '#000000', color: '#000000' }}
       aria-hidden="true"
     >

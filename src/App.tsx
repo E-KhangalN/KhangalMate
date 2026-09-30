@@ -3,48 +3,90 @@ import { GradeNumber, TopicPackage } from './types';
 import { storageService } from './services/storageService';
 import { GRADE_TOPICS_CATALOG } from './data/initialData';
 import { Sidebar } from './components/Sidebar';
-import { SearchBar } from './components/SearchBar';
 import { TopicPage } from './components/TopicPage';
-import { QuestionBankModal } from './components/QuestionBankModal';
 import { AdminEditorModal } from './components/AdminEditorModal';
 import { AccessRequestsModal } from './components/AccessRequestsModal';
 import { LoginView } from './components/LoginView';
 import { ScreenProtection } from './components/ScreenProtection';
+import { SettingsModal } from './components/SettingsModal';
+import { ExamsHub } from './components/ExamsHub';
 import { AuthUser } from './types';
 import { getStoredAuth, clearStoredAuth } from './utils/deviceManager';
 import { accessRequestService } from './services/accessRequestService';
+import { firebaseAuthService } from './services/firebaseAuthService';
 import {
   Menu,
   Printer,
-  Database,
   Settings,
   Sparkles,
-  BookOpen,
   ChevronDown,
   FileDown,
   LogOut,
   X,
-  UserCheck,
+  Shield,
+  Eye,
 } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuth());
+  const [previewAsUser, setPreviewAsUser] = useState<boolean>(false);
+  const [activeView, setActiveView] = useState<'topics' | 'exams'>('topics');
   const [topics, setTopics] = useState<TopicPackage[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<GradeNumber>(6);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('g6-divisibility');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [accessRequestsModalOpen, setAccessRequestsModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [screenProtectionEnabled, setScreenProtectionEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('math_app_screen_protection') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleScreenProtection = (enabled: boolean) => {
+    setScreenProtectionEnabled(enabled);
+    try {
+      localStorage.setItem('math_app_screen_protection', String(enabled));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(() => {
     return accessRequestService.getRequests().filter((r) => r.status === 'pending').length;
   });
-  const [questionBankOpen, setQuestionBankOpen] = useState(false);
+
+  // Keep pending requests count synchronized in real time
+  useEffect(() => {
+    const refreshCount = () => {
+      const count = accessRequestService.getRequests().filter((r) => r.status === 'pending').length;
+      setPendingRequestsCount(count);
+    };
+
+    refreshCount();
+    const interval = setInterval(refreshCount, 3000);
+    window.addEventListener('storage', refreshCount);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', refreshCount);
+    };
+  }, []);
   const [printMenuOpen, setPrintMenuOpen] = useState(false);
   const printMenuRef = React.useRef<HTMLDivElement>(null);
 
-  const handleLogout = () => {
-    clearStoredAuth();
-    setCurrentUser(null);
+  const handleLogout = async () => {
+    try {
+      await firebaseAuthService.logout();
+    } catch (error) {
+      console.error('Firebase logout failed:', error);
+    } finally {
+      clearStoredAuth();
+      setCurrentUser(null);
+    }
   };
 
   // Close print menu on click outside
@@ -79,7 +121,17 @@ export default function App() {
     if (existing) return existing;
 
     // Search in catalog to generate a starter package
-    const catItem = GRADE_TOPICS_CATALOG[selectedGrade]?.find((item) => item.id === selectedTopicId);
+    let catItem = GRADE_TOPICS_CATALOG[selectedGrade]?.find((item) => item.id === selectedTopicId);
+    if (!catItem) {
+      // Check other grades catalog in case it was a multi-grade shared topic
+      for (const g of [6, 7, 8, 9, 10, 11, 12] as GradeNumber[]) {
+        const found = GRADE_TOPICS_CATALOG[g]?.find((item) => item.id === selectedTopicId);
+        if (found) {
+          catItem = found;
+          break;
+        }
+      }
+    }
     if (catItem) {
       return {
         id: catItem.id,
@@ -212,15 +264,10 @@ export default function App() {
     return topics[0] || ({} as TopicPackage);
   }, [topics, selectedTopicId, selectedGrade]);
 
-  const handleSearchResultSelect = (grade: GradeNumber, topicId: string) => {
-    setSelectedGrade(grade);
-    setSelectedTopicId(topicId);
-  };
-
   if (!currentUser) {
     return (
       <>
-        <ScreenProtection />
+        <ScreenProtection enabled={screenProtectionEnabled} />
         <LoginView onLoginSuccess={(user) => setCurrentUser(user)} />
       </>
     );
@@ -228,7 +275,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100 flex flex-col font-sans text-stone-900">
-      <ScreenProtection />
+      <ScreenProtection enabled={screenProtectionEnabled} />
       {/* Top Navigation Bar on Screen */}
       <header className="screen-header bg-white border-b border-stone-200 sticky top-0 z-40 h-14 px-4 flex items-center shadow-2xs no-print">
         <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-3">
@@ -252,103 +299,97 @@ export default function App() {
             </div>
           </div>
 
-          {/* Search bar */}
-          <div className="flex-1 max-w-md mx-2">
-            <SearchBar onSelectResult={handleSearchResultSelect} />
-          </div>
+          <div className="flex-1" />
 
           {/* Action buttons */}
           <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => setAccessRequestsModalOpen(true)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-stone-700 hover:bg-stone-100 border border-stone-200 flex items-center space-x-1.5 transition-colors cursor-pointer relative"
-              title="Нэвтрэх хүсэлтүүдийг хянах, зөвшөөрөх"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden sm:inline">Хүсэлтүүд</span>
-              {pendingRequestsCount > 0 && (
-                <span className="px-1.5 py-0.2 bg-red-600 text-white rounded-full text-[10px] font-extrabold animate-pulse">
-                  {pendingRequestsCount}
-                </span>
-              )}
-            </button>
+            {/* Admin vs User View Switcher (Icons only) */}
+            {currentUser?.role === 'admin' && (
+              <div className="flex items-center bg-stone-100 p-0.5 rounded-lg border border-stone-200">
+                <button
+                  type="button"
+                  onClick={() => setPreviewAsUser(false)}
+                  className={`p-1.5 rounded-md transition-all cursor-pointer ${
+                    !previewAsUser
+                      ? 'bg-stone-900 text-amber-400 shadow-xs'
+                      : 'text-stone-500 hover:text-stone-900'
+                  }`}
+                  title="Админ горим"
+                  aria-label="Админ горим"
+                >
+                  <Shield className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewAsUser(true)}
+                  className={`p-1.5 rounded-md transition-all cursor-pointer ${
+                    previewAsUser
+                      ? 'bg-amber-500 text-stone-950 shadow-xs'
+                      : 'text-stone-500 hover:text-stone-900'
+                  }`}
+                  title="Хэрэглэгчээр харах"
+                  aria-label="Хэрэглэгчээр харах"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
-            <button
-              type="button"
-              onClick={() => setAdminModalOpen(true)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-stone-700 hover:bg-stone-100 border border-stone-200 hidden sm:flex items-center space-x-1.5 transition-colors cursor-pointer"
-            >
-              <Settings className="w-3.5 h-3.5 text-stone-500" />
-              <span>Удирдлага</span>
-            </button>
+            {/* Admin only: Unified Print & PDF Menu */}
+            {currentUser?.role === 'admin' && !previewAsUser && (
+              <div className="relative" ref={printMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setPrintMenuOpen((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-stone-900 hover:bg-black text-white flex items-center space-x-1.5 shadow-xs transition-colors cursor-pointer"
+                  aria-expanded={printMenuOpen}
+                >
+                  <Printer className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Хэвлэх</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-150 ${printMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-            {/* Unified Print & PDF Menu */}
-            <div className="relative" ref={printMenuRef}>
-              <button
-                type="button"
-                onClick={() => setPrintMenuOpen((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-stone-900 hover:bg-black text-white flex items-center space-x-1.5 shadow-xs transition-colors cursor-pointer"
-                aria-expanded={printMenuOpen}
-              >
-                <Printer className="w-3.5 h-3.5 text-amber-400" />
-                <span>Хэвлэх</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-150 ${printMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
+                {printMenuOpen && (
+                  <div className="absolute right-0 mt-1.5 w-52 bg-white rounded-xl shadow-lg border border-stone-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrintMenuOpen(false);
+                        window.print();
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left hover:bg-stone-50 flex items-center space-x-2.5 transition-colors group cursor-pointer"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-stone-700 group-hover:bg-amber-100 group-hover:text-amber-800 transition-colors">
+                        <Printer className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-stone-900">Хэвлэх (A4)</div>
+                        <div className="text-[10px] text-stone-500">Принтер рүү шууд илгээх</div>
+                      </div>
+                    </button>
 
-              {printMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-52 bg-white rounded-xl shadow-lg border border-stone-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPrintMenuOpen(false);
-                      window.print();
-                    }}
-                    className="w-full px-3.5 py-2.5 text-left hover:bg-stone-50 flex items-center space-x-2.5 transition-colors group cursor-pointer"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-stone-700 group-hover:bg-amber-100 group-hover:text-amber-800 transition-colors">
-                      <Printer className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-stone-900">Хэвлэх (A4)</div>
-                      <div className="text-[10px] text-stone-500">Принтер рүү шууд илгээх</div>
-                    </div>
-                  </button>
+                    <div className="my-1 border-t border-stone-100" />
 
-                  <div className="my-1 border-t border-stone-100" />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPrintMenuOpen(false);
-                      window.print();
-                    }}
-                    className="w-full px-3.5 py-2.5 text-left hover:bg-stone-50 flex items-center space-x-2.5 transition-colors group cursor-pointer"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-stone-700 group-hover:bg-amber-100 group-hover:text-amber-800 transition-colors">
-                      <FileDown className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-stone-900">PDF-ээр хадгалах</div>
-                      <div className="text-[10px] text-stone-500">Цонхноос &quot;Save as PDF&quot; сонгох</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Logout Button */}
-            <div className="flex items-center pl-1.5 border-l border-stone-200">
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-stone-700 hover:text-red-700 hover:bg-red-50 border border-stone-200 hover:border-red-200 flex items-center space-x-1.5 transition-colors cursor-pointer"
-                title="Системээс гарах"
-              >
-                <LogOut className="w-3.5 h-3.5 text-stone-500 hover:text-red-700" />
-                <span className="font-semibold">Гарах</span>
-              </button>
-            </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrintMenuOpen(false);
+                        window.print();
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left hover:bg-stone-50 flex items-center space-x-2.5 transition-colors group cursor-pointer"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center text-stone-700 group-hover:bg-amber-100 group-hover:text-amber-800 transition-colors">
+                        <FileDown className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-stone-900">PDF-ээр хадгалах</div>
+                        <div className="text-[10px] text-stone-500">Цонхноос &quot;Save as PDF&quot; сонгох</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -360,19 +401,51 @@ export default function App() {
           selectedGrade={selectedGrade}
           onSelectGrade={setSelectedGrade}
           selectedTopicId={selectedTopicId}
-          onSelectTopic={setSelectedTopicId}
+          onSelectTopic={(topicId) => {
+            setSelectedTopicId(topicId);
+            setActiveView('topics');
+          }}
           onOpenAdmin={() => setAdminModalOpen(true)}
-          onOpenQuestionBank={() => setQuestionBankOpen(true)}
           mobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          currentUser={currentUser}
+          onOpenSettings={() => setSettingsModalOpen(true)}
+          onLogout={handleLogout}
+          pendingRequestsCount={pendingRequestsCount}
+          onOpenAccessRequests={() => setAccessRequestsModalOpen(true)}
+          isAdmin={currentUser?.role === 'admin' && !previewAsUser}
+          activeView={activeView}
+          onSelectView={setActiveView}
         />
 
         {/* Main Content Area */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 min-w-0">
-          {currentTopic.id ? (
+          {activeView === 'exams' ? (
+            <ExamsHub
+              topics={topics}
+              selectedGrade={selectedGrade}
+              onSelectGrade={setSelectedGrade}
+              onSelectTopic={(topicId) => {
+                setSelectedTopicId(topicId);
+                setActiveView('topics');
+              }}
+              isAdmin={currentUser?.role === 'admin' && !previewAsUser}
+            />
+          ) : currentTopic.id ? (
             <TopicPage
               topic={currentTopic}
+              isAdmin={currentUser?.role === 'admin' && !previewAsUser}
+              currentUser={currentUser}
+              onUpdateTopic={(updated) => {
+                storageService.saveTopic(updated);
+                refreshTopics();
+              }}
               onOpenAdmin={() => setAdminModalOpen(true)}
+              onPreviewAsUser={() => setPreviewAsUser(true)}
+              onOpenExamsHub={(topicId) => {
+                if (topicId) setSelectedTopicId(topicId);
+                setActiveView('exams');
+              }}
             />
           ) : (
             <div className="text-center py-20 text-stone-400">
@@ -381,13 +454,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {/* Question Bank Modal */}
-      <QuestionBankModal
-        isOpen={questionBankOpen}
-        onClose={() => setQuestionBankOpen(false)}
-        topics={topics}
-      />
 
       {/* Admin Material Editor Modal */}
       <AdminEditorModal
@@ -409,6 +475,18 @@ export default function App() {
         isOpen={accessRequestsModalOpen}
         onClose={() => setAccessRequestsModalOpen(false)}
         onRequestCountChange={setPendingRequestsCount}
+      />
+
+      {/* Settings Modal (Phone-style cascading settings: profile, phone, email, password, preferences) */}
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        currentUser={currentUser}
+        onUpdateCurrentUser={(updated) => setCurrentUser(updated)}
+        onLogout={handleLogout}
+        screenProtectionEnabled={screenProtectionEnabled}
+        onToggleScreenProtection={handleToggleScreenProtection}
+        isAdmin={currentUser?.role === 'admin'}
       />
     </div>
   );

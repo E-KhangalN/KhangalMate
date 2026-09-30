@@ -17,7 +17,7 @@ export const AccessRequestsModal: React.FC<AccessRequestsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col h-[85vh]">
+      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col h-[90vh]">
         {/* Header */}
         <div className="px-6 py-4 bg-stone-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
@@ -25,9 +25,9 @@ export const AccessRequestsModal: React.FC<AccessRequestsModalProps> = ({
               <UserCheck className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">Нэвтрэх хүсэлтүүдийн удирдлага</h2>
+              <h2 className="text-sm font-bold text-white">Нэвтрэх хүсэлт & Хэрэглэгчийн эрхийн удирдлага</h2>
               <p className="text-[11px] text-stone-400">
-                Зөвшөөрснөөр тухайн хүнд нэвтрэх утас, нууц үг автоматаар олгогдоно (24 цагийн хугацаатай)
+                Хэрэглэгчийн ID-аар эрх оноох, хүсэлт зөвшөөрөх, анхдагч эрхийн тохиргоо
               </p>
             </div>
           </div>

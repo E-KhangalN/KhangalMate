@@ -37,6 +37,7 @@ export interface TestQuestion {
   id: string;
   number: number;
   question: string;
+  options?: string[];
   points: number;
   answer: string;
   solution?: string;
@@ -56,6 +57,7 @@ export interface TestPackage {
 export interface TopicPackage {
   id: string;
   grade: GradeNumber;
+  visibleGrades?: GradeNumber[]; // Support displaying in multiple grades (6, 7, 8, etc.)
   category: string;
   title: string;
   code?: string;
@@ -103,12 +105,18 @@ export interface LoggedInDevice {
   location: string;
   lastActive: string;
   isCurrent: boolean;
-  phoneNumber: string;
+  phoneNumber?: string;
+  email?: string;
 }
 
 export interface AuthUser {
-  phoneNumber: string;
+  userId?: string;
+  phoneNumber?: string;
+  email?: string;
+  username?: string;
   name?: string;
+  school?: string;
+  grade?: string;
   role: 'teacher' | 'admin';
   loggedInAt: string;
   deviceId: string;
@@ -118,8 +126,10 @@ export type AccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired
 
 export interface AccessRequest {
   id: string;
+  userId?: string;
   fullName: string;
-  phoneNumber: string;
+  email: string;
+  phoneNumber?: string;
   school?: string;
   note?: string;
   requestedAt: number;
@@ -127,16 +137,52 @@ export interface AccessRequest {
   status: AccessRequestStatus;
   approvedAt?: number;
   generatedPassword?: string;
-  smsSent: boolean;
+  emailSent?: boolean;
+  emailSentAt?: number;
+  emailSubject?: string;
+  emailBody?: string;
+  smsSent?: boolean;
   smsSentAt?: number;
   smsMessage?: string;
+  requestedTopicId?: string;
+  requestedTopicTitle?: string;
+  requestType?: 'full_access' | 'topic_unlock';
 }
 
 export interface ApprovedAccount {
-  phoneNumber: string;
+  userId?: string;
+  email: string;
+  username?: string;
+  phoneNumber?: string;
   password: string;
   fullName: string;
   school?: string;
+  grade?: string;
   approvedAt: number;
   active: boolean;
+}
+
+export interface UserPermissions {
+  userId: string;
+  allowedGrades: GradeNumber[];
+  sections: {
+    theory: boolean;
+    examples: boolean;
+    practice: boolean;
+    exams: boolean;
+  };
+  accessMode: 'visible' | 'locked';
+  isBlocked?: boolean;
+  updatedAt?: number;
+}
+
+export interface DefaultPermissionsConfig {
+  allowedGrades: GradeNumber[];
+  sections: {
+    theory: boolean;
+    examples: boolean;
+    practice: boolean;
+    exams: boolean;
+  };
+  defaultAccessMode: 'visible' | 'locked';
 }

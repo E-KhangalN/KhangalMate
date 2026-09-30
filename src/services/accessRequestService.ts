@@ -1,7 +1,23 @@
-import { AccessRequest, ApprovedAccount, AccessRequestStatus } from '../types';
+import { AccessRequest, ApprovedAccount, AccessRequestStatus, AuthUser } from '../types';
+import { userPermissionsService } from './userPermissionsService';
 
 const STORAGE_KEY_REQUESTS = 'math_app_access_requests_v1';
 const STORAGE_KEY_APPROVED = 'math_app_approved_accounts_v1';
+const STORAGE_KEY_ADMIN_PROFILE = 'math_app_admin_profile_v1';
+
+export interface AdminProfile {
+  name: string;
+  phoneNumber: string;
+  email: string;
+  password: string;
+}
+
+const DEFAULT_ADMIN_PROFILE: AdminProfile = {
+  name: 'Админ (89163999)',
+  phoneNumber: '89163999',
+  email: 'ehangal725@gmail.com',
+  password: 'Hangal0101@@',
+};
 
 // 24 hours in milliseconds
 export const EXPIRATION_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -18,16 +34,18 @@ export const accessRequestService = {
       const now = Date.now();
       let hasUpdates = false;
 
-      // Check 24-hour expiration
+      // Check 24-hour expiration and ensure userId exists
       const updatedList = list.map((req) => {
-        if (req.status === 'pending' && now > req.expiresAt) {
+        let updated = { ...req };
+        if (!updated.userId) {
           hasUpdates = true;
-          return {
-            ...req,
-            status: 'expired' as AccessRequestStatus,
-          };
+          updated.userId = userPermissionsService.generateUserId(updated.email || updated.phoneNumber || updated.id);
         }
-        return req;
+        if (updated.status === 'pending' && now > updated.expiresAt) {
+          hasUpdates = true;
+          updated.status = 'expired' as AccessRequestStatus;
+        }
+        return updated;
       });
 
       if (hasUpdates) {
@@ -54,37 +72,39 @@ export const accessRequestService = {
   },
 
   /**
-   * Submit a new access request from login screen
+   * Submit a new access request from login screen using Gmail / Email
    */
   submitRequest(data: {
     fullName: string;
-    phoneNumber: string;
+    email: string;
+    phoneNumber?: string;
     school?: string;
     note?: string;
   }): { success: boolean; message: string; request?: AccessRequest } {
-    const cleanPhone = data.phoneNumber.replace(/\s+/g, '');
+    const cleanEmail = data.email.trim().toLowerCase();
     const cleanName = data.fullName.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!cleanName) {
       return { success: false, message: 'Овог нэрээ заавал оруулна уу.' };
     }
 
-    if (!cleanPhone || cleanPhone.length < 8) {
-      return { success: false, message: 'Зөв утасны дугаар оруулна уу (8 оронтой).' };
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+      return { success: false, message: 'Зөв Gmail хаяг оруулна уу (жишээ: bagsh@gmail.com).' };
     }
 
-    // Check if phone is already the main admin
-    if (cleanPhone === '89163999') {
-      return { success: false, message: 'Энэ дугаар системийн админ дугаар байна.' };
+    // Check if email is already the main admin
+    if (cleanEmail === 'ehangal725@gmail.com' || cleanEmail === 'admin@gmail.com' || cleanEmail === '89163999') {
+      return { success: false, message: 'Энэ хаяг системийн админ хаяг байна.' };
     }
 
     // Check if user already has an active approved account
     const accounts = this.getApprovedAccounts();
-    const existingAccount = accounts.find((a) => a.phoneNumber === cleanPhone && a.active);
+    const existingAccount = accounts.find((a) => a.email.toLowerCase() === cleanEmail && a.active);
     if (existingAccount) {
       return {
         success: false,
-        message: 'Энэ утасны дугаарт нэвтрэх эрх аль хэдийн олгогдсон байна. Нууц үгээрээ нэвтэрнэ үү.',
+        message: 'Энэ Gmail хаягт нэвтрэх эрх аль хэдийн олгогдсон байна. Нууц үгээрээ нэвтэрнэ үү.',
       };
     }
 
@@ -92,7 +112,7 @@ export const accessRequestService = {
 
     // Check if there is already an active pending request (not expired)
     const existingPending = currentRequests.find(
-      (r) => r.phoneNumber === cleanPhone && r.status === 'pending' && Date.now() <= r.expiresAt
+      (r) => (r.email?.toLowerCase() === cleanEmail || r.phoneNumber === cleanEmail) && r.status === 'pending' && Date.now() <= r.expiresAt
     );
 
     if (existingPending) {
@@ -107,14 +127,16 @@ export const accessRequestService = {
     const now = Date.now();
     const newRequest: AccessRequest = {
       id: 'req-' + now + '-' + Math.random().toString(36).substring(2, 7),
+      userId: userPermissionsService.generateUserId(cleanEmail),
       fullName: cleanName,
-      phoneNumber: cleanPhone,
+      email: cleanEmail,
+      phoneNumber: data.phoneNumber?.trim() || '',
       school: data.school?.trim(),
       note: data.note?.trim(),
       requestedAt: now,
       expiresAt: now + EXPIRATION_DURATION_MS,
       status: 'pending',
-      smsSent: false,
+      emailSent: false,
     };
 
     const updated = [newRequest, ...currentRequests];
@@ -122,31 +144,35 @@ export const accessRequestService = {
 
     return {
       success: true,
-      message: 'Таны нэвтрэх хүсэлт амжилттай илгээгдлээ. Админ зөвшөөрөхөд таны дугаар луу нэвтрэх эрх автоматаар очно.',
+      message: `Таны хүсэлт амжилттай илгээгдлээ. Админ зөвшөөрөх үед ${cleanEmail} хаяг руу тань нэвтрэх нэр, нууц үг автоматаар илгээгдэх болно.`,
       request: newRequest,
     };
   },
 
   /**
-   * Find request by phone number to allow checking status
+   * Find request by email or phone to allow checking status
    */
-  getRequestByPhone(phoneNumber: string): AccessRequest | null {
-    const cleanPhone = phoneNumber.replace(/\s+/g, '');
+  getRequestByEmail(email: string): AccessRequest | null {
+    const clean = email.trim().toLowerCase();
     const requests = this.getRequests();
-    return requests.find((r) => r.phoneNumber === cleanPhone) || null;
+    return requests.find((r) => r.email?.toLowerCase() === clean || r.phoneNumber === clean) || null;
+  },
+
+  getRequestByPhone(identifier: string): AccessRequest | null {
+    return this.getRequestByEmail(identifier);
   },
 
   /**
    * Admin approves a request:
    * 1. Generates secure login password
-   * 2. Registers account into Approved Accounts
-   * 3. Prepares and dispatches SMS message to the phone number
-   * 4. Updates request status to 'approved'
+   * 2. Registers account into Approved Accounts (with username = user email)
+   * 3. Formulates email notification containing username & password
+   * 4. Updates request status to 'approved' and marks emailSent: true
    */
   approveRequest(
     requestId: string,
     customPassword?: string
-  ): { success: boolean; message: string; account?: ApprovedAccount; request?: AccessRequest } {
+  ): { success: boolean; message: string; account?: ApprovedAccount; request?: AccessRequest; gmailComposeUrl?: string } {
     const requests = this.getRequests();
     const index = requests.findIndex((r) => r.id === requestId);
     if (index === -1) {
@@ -154,24 +180,63 @@ export const accessRequestService = {
     }
 
     const target = requests[index];
+    const userEmail = target.email || target.phoneNumber || '';
+
+    // If it's a topic unlock request, unlock that topic
+    if (target.requestType === 'topic_unlock' && target.requestedTopicId) {
+      // Set topic to visible for everyone
+      try {
+        const vKey = 'mongolian_math_visibility_settings_v2';
+        const vRaw = localStorage.getItem(vKey);
+        if (vRaw) {
+          const vData = JSON.parse(vRaw);
+          vData.lockedTopicIds = (vData.lockedTopicIds || []).filter((id: string) => id !== target.requestedTopicId);
+          vData.hiddenTopicIds = (vData.hiddenTopicIds || []).filter((id: string) => id !== target.requestedTopicId);
+          localStorage.setItem(vKey, JSON.stringify(vData));
+          window.dispatchEvent(new CustomEvent('visibility-settings-updated'));
+        }
+      } catch (err) {
+        console.error('Failed to unlock topic:', err);
+      }
+    }
+
     // Generate secure 6-character password or use provided
     const password =
       customPassword?.trim() ||
       'M' + Math.floor(100000 + Math.random() * 900000); // e.g. M482915
 
     const now = Date.now();
+    const originUrl = typeof window !== 'undefined' ? window.location.origin : 'https://khangalmate.mn';
 
-    // Auto-formatted SMS text sent to user's phone
-    const smsMessage = `[Математикийн сургалтын сан] Сайн байна уу, ${target.fullName}. Танд системд нэвтрэх эрх олгогдлоо. Нэвтрэх утас: ${target.phoneNumber}, Нууц үг: ${password}`;
+    // Formatted email subject and body sent to user's Gmail
+    const emailSubject = `[Математикийн сургалтын сан] Системд нэвтрэх эрх олгогдлоо`;
+    const emailBody = `Сайн байна уу, ${target.fullName}.
+
+Математикийн сургалтын сан системд нэвтрэх таны хүсэлт зөвшөөрөгдлөө.
+
+Таны нэвтрэх мэдээлэл:
+• Нэвтрэх нэр (Gmail): ${userEmail}
+• Нууц үг: ${password}
+• Системийн холбоос: ${originUrl}
+
+Амжилт хүсье!
+Математикийн сургалтын сан`;
+
+    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(userEmail)}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
     const updatedRequest: AccessRequest = {
       ...target,
       status: 'approved',
       approvedAt: now,
+      username: userEmail,
       generatedPassword: password,
+      emailSent: true,
+      emailSentAt: now,
+      emailSubject,
+      emailBody,
       smsSent: true,
       smsSentAt: now,
-      smsMessage,
+      smsMessage: `Нэвтрэх Gmail: ${userEmail}, Нууц үг: ${password}`,
     };
 
     requests[index] = updatedRequest;
@@ -179,9 +244,13 @@ export const accessRequestService = {
 
     // Save/update in approved accounts
     const accounts = this.getApprovedAccounts();
-    const existingIdx = accounts.findIndex((a) => a.phoneNumber === target.phoneNumber);
+    const existingIdx = accounts.findIndex((a) => a.email.toLowerCase() === userEmail.toLowerCase() || (a.phoneNumber && a.phoneNumber === userEmail));
+    const accountUserId = target.userId || userPermissionsService.generateUserId(userEmail);
     const newAccount: ApprovedAccount = {
-      phoneNumber: target.phoneNumber,
+      userId: accountUserId,
+      email: userEmail,
+      username: userEmail,
+      phoneNumber: target.phoneNumber || '',
       password,
       fullName: target.fullName,
       school: target.school,
@@ -198,9 +267,10 @@ export const accessRequestService = {
 
     return {
       success: true,
-      message: `Хүсэлт зөвшөөрөгдөж, ${target.phoneNumber} дугаар луу нэвтрэх нууц үг (${password}) илгээгдлээ.`,
+      message: `Хүсэлт зөвшөөрөгдөж, ${userEmail} хаяг руу нэвтрэх нэр болон нууц үг (${password}) илгээгдлээ.`,
       account: newAccount,
       request: updatedRequest,
+      gmailComposeUrl,
     };
   },
 
@@ -230,7 +300,20 @@ export const accessRequestService = {
   getApprovedAccounts(): ApprovedAccount[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEY_APPROVED);
-      return raw ? JSON.parse(raw) : [];
+      if (!raw) return [];
+      const accounts: ApprovedAccount[] = JSON.parse(raw);
+      let updated = false;
+      const normalized = accounts.map((acc) => {
+        if (!acc.userId) {
+          updated = true;
+          acc.userId = userPermissionsService.generateUserId(acc.email || acc.phoneNumber);
+        }
+        return acc;
+      });
+      if (updated) {
+        this.saveApprovedAccounts(normalized);
+      }
+      return normalized;
     } catch {
       return [];
     }
@@ -245,39 +328,151 @@ export const accessRequestService = {
   },
 
   /**
+   * Admin Profile Store & Update
+   */
+  getAdminProfile(): AdminProfile {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_ADMIN_PROFILE);
+      if (raw) {
+        return { ...DEFAULT_ADMIN_PROFILE, ...JSON.parse(raw) };
+      }
+    } catch (e) {
+      console.error('Failed to parse admin profile', e);
+    }
+    return DEFAULT_ADMIN_PROFILE;
+  },
+
+  saveAdminProfile(profile: Partial<AdminProfile>): AdminProfile {
+    try {
+      const current = this.getAdminProfile();
+      const updated: AdminProfile = {
+        ...current,
+        ...profile,
+      };
+      localStorage.setItem(STORAGE_KEY_ADMIN_PROFILE, JSON.stringify(updated));
+      return updated;
+    } catch (e) {
+      console.error('Failed to save admin profile', e);
+      return this.getAdminProfile();
+    }
+  },
+
+
+  /**
+   * Create a teacher account immediately from the public registration form.
+   * Phone number is the login identifier; no admin approval is required.
+   */
+  registerAccount(data: {
+    fullName: string;
+    phoneNumber: string;
+    school: string;
+    grade: string;
+    password: string;
+  }): { success: boolean; message: string; account?: ApprovedAccount } {
+    const fullName = data.fullName.trim();
+    const phoneNumber = data.phoneNumber.replace(/\D/g, '');
+    const school = data.school.trim();
+    const grade = data.grade.trim();
+    const password = data.password.trim();
+
+    if (!fullName) return { success: false, message: 'Овог нэрээ оруулна уу.' };
+    if (!/^\d{8}$/.test(phoneNumber)) {
+      return { success: false, message: 'Утасны дугаар 8 оронтой байна.' };
+    }
+    if (!school) return { success: false, message: 'Сургуулийн нэрээ оруулна уу.' };
+    if (!grade) return { success: false, message: 'Ангиа сонгоно уу.' };
+    if (!/^\d{4,6}$/.test(password)) {
+      return { success: false, message: 'PIN код 4–6 оронтой тоо байна.' };
+    }
+
+    const adminProfile = this.getAdminProfile();
+    if (phoneNumber === adminProfile.phoneNumber || phoneNumber === '89163999') {
+      return { success: false, message: 'Энэ утасны дугаар админ бүртгэлд ашиглагдаж байна.' };
+    }
+
+    const accounts = this.getApprovedAccounts();
+    if (accounts.some((a) => a.phoneNumber === phoneNumber && a.active)) {
+      return { success: false, message: 'Энэ утасны дугаараар бүртгэл аль хэдийн үүссэн байна.' };
+    }
+
+    const account: ApprovedAccount = {
+      userId: userPermissionsService.generateUserId(phoneNumber),
+      email: '',
+      username: phoneNumber,
+      phoneNumber,
+      password,
+      fullName,
+      school,
+      grade,
+      approvedAt: Date.now(),
+      active: true,
+    };
+
+    accounts.push(account);
+    this.saveApprovedAccounts(accounts);
+
+    return {
+      success: true,
+      message: 'Бүртгэл амжилттай үүслээ. Та шууд нэвтрэх боломжтой.',
+      account,
+    };
+  },
+
+  /**
    * Validate credentials during login:
-   * Returns authenticated user info if matched
+   * Supports login with Gmail address or Admin username (89163999) or updated admin email/phone
    */
   validateLogin(
-    phone: string,
+    identifier: string,
     pass: string
-  ): { valid: boolean; user?: { phoneNumber: string; name: string; role: 'admin' | 'teacher' }; error?: string } {
-    const cleanPhone = phone.replace(/\s+/g, '');
+  ): { valid: boolean; user?: { userId?: string; phoneNumber?: string; email?: string; username?: string; name: string; school?: string; grade?: string; role: 'admin' | 'teacher' }; error?: string } {
+    const cleanId = identifier.trim().toLowerCase();
     const cleanPass = pass.trim();
 
-    // 1. Primary admin check
-    if (cleanPhone === '89163999' && cleanPass === 'Hangal0101@@') {
+    // 1. Primary admin check (supports default credentials AND updated profile)
+    const adminProfile = this.getAdminProfile();
+    const isAdminId =
+      cleanId === '89163999' ||
+      cleanId === 'admin' ||
+      cleanId === 'ehangal725@gmail.com' ||
+      cleanId === 'admin@gmail.com' ||
+      cleanId === adminProfile.phoneNumber.toLowerCase() ||
+      cleanId === adminProfile.email.toLowerCase();
+
+    const isAdminPass = cleanPass === adminProfile.password || (cleanPass === 'Hangal0101@@' && !adminProfile.password);
+
+    if (isAdminId && isAdminPass) {
       return {
         valid: true,
         user: {
-          phoneNumber: '89163999',
-          name: 'Админ (89163999)',
+          userId: 'ADMIN-01',
+          phoneNumber: adminProfile.phoneNumber,
+          email: adminProfile.email,
+          username: cleanId,
+          name: adminProfile.name || `Админ (${adminProfile.phoneNumber})`,
           role: 'admin',
         },
       };
     }
 
-    // 2. Approved accounts check
+    // 2. Approved accounts check (matches by email, username, or phone)
     const accounts = this.getApprovedAccounts();
-    const matched = accounts.find((a) => a.phoneNumber === cleanPhone && a.active);
+    const matched = accounts.find(
+      (a) => (a.email?.toLowerCase() === cleanId || a.username?.toLowerCase() === cleanId || a.phoneNumber === cleanId) && a.active
+    );
 
     if (matched) {
       if (matched.password === cleanPass) {
         return {
           valid: true,
           user: {
+            userId: matched.userId || userPermissionsService.generateUserId(matched.email || matched.phoneNumber || matched.username || 'user'),
+            email: matched.email,
+            username: matched.username || matched.email,
             phoneNumber: matched.phoneNumber,
-            name: matched.fullName || `Багш (${matched.phoneNumber})`,
+            name: matched.fullName || `Хэрэглэгч (${matched.phoneNumber || matched.email})`,
+            school: matched.school,
+            grade: matched.grade,
             role: 'teacher',
           },
         };
@@ -288,12 +483,12 @@ export const accessRequestService = {
 
     // 3. Check if they have a pending request
     const requests = this.getRequests();
-    const req = requests.find((r) => r.phoneNumber === cleanPhone);
+    const req = requests.find((r) => r.email?.toLowerCase() === cleanId || r.phoneNumber === cleanId);
     if (req) {
       if (req.status === 'pending') {
         return {
           valid: false,
-          error: 'Таны нэвтрэх хүсэлт админы зөвшөөрлийг хүлээж байна. (24 цагийн дотор шийдвэрлэгдэнэ)',
+          error: 'Таны нэвтрэх хүсэлт админы зөвшөөрлийг хүлээж байна. (Зөвшөөрсний дараа таны мэйл рүү нууц үг очно)',
         };
       }
       if (req.status === 'expired') {
@@ -310,16 +505,17 @@ export const accessRequestService = {
       }
     }
 
-    return { valid: false, error: 'Утасны дугаар эсвэл нууц үг буруу байна.' };
+    return { valid: false, error: 'Утасны дугаар эсвэл PIN код буруу байна.' };
   },
 
   /**
    * Revoke or toggle account
    */
-  toggleAccountStatus(phoneNumber: string): boolean {
+  toggleAccountStatus(identifier: string): boolean {
+    const clean = identifier.trim().toLowerCase();
     const accounts = this.getApprovedAccounts();
     const updated = accounts.map((acc) =>
-      acc.phoneNumber === phoneNumber ? { ...acc, active: !acc.active } : acc
+      (acc.email?.toLowerCase() === clean || acc.phoneNumber === clean) ? { ...acc, active: !acc.active } : acc
     );
     this.saveApprovedAccounts(updated);
     return true;
@@ -328,10 +524,189 @@ export const accessRequestService = {
   /**
    * Delete an approved account completely
    */
-  deleteAccount(phoneNumber: string): boolean {
+  deleteAccount(identifier: string): boolean {
+    const clean = identifier.trim().toLowerCase();
     const accounts = this.getApprovedAccounts();
-    const updated = accounts.filter((acc) => acc.phoneNumber !== phoneNumber);
+    const updated = accounts.filter((acc) => acc.email?.toLowerCase() !== clean && acc.phoneNumber !== clean);
     this.saveApprovedAccounts(updated);
     return true;
+  },
+
+  /**
+   * Update User Profile (Phone number, Gmail address, Name)
+   */
+  updateUserProfile(
+    currentUser: AuthUser,
+    updates: { name?: string; phoneNumber?: string; email?: string }
+  ): { success: boolean; message: string; updatedUser?: AuthUser } {
+    const cleanName = updates.name?.trim();
+    const cleanEmail = updates.email?.trim().toLowerCase();
+    const cleanPhone = updates.phoneNumber?.trim();
+
+    if (!cleanName) {
+      return { success: false, message: 'Овог нэрээ заавал оруулна уу.' };
+    }
+
+    if (cleanEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return { success: false, message: 'Зөв Gmail / мэйл хаяг оруулна уу.' };
+      }
+    }
+
+    if (cleanPhone && cleanPhone.length < 8) {
+      return { success: false, message: 'Утасны дугаар доод тал нь 8 оронтой байна.' };
+    }
+
+    if (currentUser.role === 'admin') {
+      const updatedAdmin = this.saveAdminProfile({
+        name: cleanName,
+        phoneNumber: cleanPhone || currentUser.phoneNumber || '89163999',
+        email: cleanEmail || currentUser.email || 'ehangal725@gmail.com',
+      });
+
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        name: updatedAdmin.name,
+        phoneNumber: updatedAdmin.phoneNumber,
+        email: updatedAdmin.email,
+      };
+
+      return {
+        success: true,
+        message: 'Админы мэдээлэл амжилттай шинэчлэгдлээ.',
+        updatedUser,
+      };
+    } else {
+      // Teacher account update
+      const accounts = this.getApprovedAccounts();
+      const userIdentifier = (currentUser.email || currentUser.phoneNumber || '').toLowerCase();
+      const accountIndex = accounts.findIndex(
+        (a) => a.email.toLowerCase() === userIdentifier || a.phoneNumber === userIdentifier
+      );
+
+      if (accountIndex >= 0) {
+        accounts[accountIndex] = {
+          ...accounts[accountIndex],
+          fullName: cleanName,
+          email: cleanEmail || accounts[accountIndex].email,
+          phoneNumber: cleanPhone || accounts[accountIndex].phoneNumber,
+        };
+        this.saveApprovedAccounts(accounts);
+      }
+
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        name: cleanName,
+        email: cleanEmail || currentUser.email,
+        phoneNumber: cleanPhone || currentUser.phoneNumber,
+      };
+
+      return {
+        success: true,
+        message: 'Хэрэглэгчийн мэдээлэл амжилттай шинэчлэгдлээ.',
+        updatedUser,
+      };
+    }
+  },
+
+  /**
+   * Change user password with current password verification
+   */
+  changePassword(
+    currentUser: AuthUser,
+    currentPass: string,
+    newPass: string
+  ): { success: boolean; message: string } {
+    const cleanCurrent = currentPass.trim();
+    const cleanNew = newPass.trim();
+
+    if (!cleanCurrent) {
+      return { success: false, message: 'Одоогийн нууц үгээ оруулна уу.' };
+    }
+    if (!cleanNew || cleanNew.length < 6) {
+      return { success: false, message: 'Шинэ нууц үг дор хаяж 6 тэмдэгттэй байх ёстой.' };
+    }
+
+    if (currentUser.role === 'admin') {
+      const admin = this.getAdminProfile();
+      if (cleanCurrent !== admin.password) {
+        return { success: false, message: 'Одоогийн нууц үг буруу байна.' };
+      }
+
+      this.saveAdminProfile({ password: cleanNew });
+      return { success: true, message: 'Админы нууц үг амжилттай солигдлоо.' };
+    } else {
+      const accounts = this.getApprovedAccounts();
+      const userIdentifier = (currentUser.email || currentUser.phoneNumber || '').toLowerCase();
+      const account = accounts.find(
+        (a) => a.email.toLowerCase() === userIdentifier || a.phoneNumber === userIdentifier
+      );
+
+      if (!account) {
+        return { success: false, message: 'Хэрэглэгчийн бүртгэл олдсонгүй.' };
+      }
+
+      if (account.password !== cleanCurrent) {
+        return { success: false, message: 'Одоогийн нууц үг буруу байна.' };
+      }
+
+      account.password = cleanNew;
+      this.saveApprovedAccounts(accounts);
+      return { success: true, message: 'Нууц үг амжилттай солигдлоо.' };
+    }
+  },
+
+  /**
+   * Submit a request for unlocking a specific topic
+   */
+  submitTopicUnlockRequest(data: {
+    user: AuthUser;
+    topicId: string;
+    topicTitle: string;
+    note?: string;
+  }): { success: boolean; message: string; request?: AccessRequest } {
+    const cleanEmail = (data.user.email || data.user.phoneNumber || '').trim().toLowerCase();
+    const cleanName = (data.user.name || data.user.username || 'Сурагч').trim();
+    const currentRequests = this.getRequests();
+
+    // Check if there's already a pending request for this topic
+    const existing = currentRequests.find(
+      (r) =>
+        r.email.toLowerCase() === cleanEmail &&
+        r.requestedTopicId === data.topicId &&
+        r.status === 'pending'
+    );
+
+    if (existing) {
+      return {
+        success: false,
+        message: 'Та энэ хичээлийг нээлгэх хүсэлтээ аль хэдийн багшид илгээсэн байна. Багшийн зөвшөөрлийг хүлээнэ үү.',
+      };
+    }
+
+    const now = Date.now();
+    const newRequest: AccessRequest = {
+      id: 'req-topic-' + now + '-' + Math.random().toString(36).substring(2, 7),
+      fullName: cleanName,
+      email: cleanEmail,
+      phoneNumber: data.user.phoneNumber || '',
+      note: data.note || `«${data.topicTitle}» хичээлийг нээлгэх хүсэлт`,
+      requestedAt: now,
+      expiresAt: now + EXPIRATION_DURATION_MS,
+      status: 'pending',
+      requestedTopicId: data.topicId,
+      requestedTopicTitle: data.topicTitle,
+      requestType: 'topic_unlock',
+      emailSent: false,
+    };
+
+    this.saveRequests([newRequest, ...currentRequests]);
+
+    return {
+      success: true,
+      message: `«${data.topicTitle}» сэдвийг нээлгэх хүсэлт багшид амжилттай илгээгдлээ. Багш зөвшөөрсний дараа хичээлийн агуулга нээгдэнэ.`,
+      request: newRequest,
+    };
   },
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Send,
+  Mail,
   Phone,
   User,
   School,
@@ -19,7 +20,7 @@ import { AccessRequest } from '../types';
 interface RequestAccessModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAutoLogin?: (phone: string, pass: string) => void;
+  onAutoLogin?: (identifier: string, pass: string) => void;
 }
 
 export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
@@ -31,6 +32,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
 
   // Request form state
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [school, setSchool] = useState('');
   const [note, setNote] = useState('');
@@ -38,7 +40,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
   const [submittedRequest, setSubmittedRequest] = useState<AccessRequest | null>(null);
 
   // Status check state
-  const [checkPhone, setCheckPhone] = useState('');
+  const [checkEmail, setCheckEmail] = useState('');
   const [checkedResult, setCheckedResult] = useState<AccessRequest | null | 'not_found'>(null);
 
   useEffect(() => {
@@ -56,6 +58,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
 
     const result = accessRequestService.submitRequest({
       fullName,
+      email,
       phoneNumber,
       school,
       note,
@@ -64,7 +67,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
     if (result.success && result.request) {
       setFeedback({ type: 'success', text: result.message });
       setSubmittedRequest(result.request);
-      setCheckPhone(phoneNumber.replace(/\s+/g, ''));
+      setCheckEmail(email.trim().toLowerCase());
     } else {
       setFeedback({ type: 'error', text: result.message });
       if (result.request) {
@@ -75,10 +78,10 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
 
   const handleCheckStatus = (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = checkPhone.replace(/\s+/g, '');
+    const clean = checkEmail.trim().toLowerCase();
     if (!clean) return;
 
-    const req = accessRequestService.getRequestByPhone(clean);
+    const req = accessRequestService.getRequestByEmail(clean);
     if (req) {
       setCheckedResult(req);
     } else {
@@ -105,7 +108,9 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Нэвтрэх эрх авах</h2>
-              <p className="text-[11px] text-stone-400">Багшийн сургалтын сан систем</p>
+              <p className="text-[11px] text-stone-400">
+                Админ зөвшөөрснөөр таны Gmail рүү нэвтрэх нэр, нууц үг очно
+              </p>
             </div>
           </div>
           <button
@@ -157,7 +162,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                   Таны хүсэлт амжилттай бүртгэгдлээ!
                 </h3>
                 <p className="text-xs text-stone-600 max-w-sm mx-auto leading-relaxed">
-                  Админ таны хүсэлтийг хянаад зөвшөөрөхөд таны <strong>{submittedRequest.phoneNumber}</strong> дугаар луу нэвтрэх нэр, нууц үг автоматаар очих болно.
+                  Админ таны хүсэлтийг хянаад зөвшөөрөхөд таны <strong>{submittedRequest.email}</strong> Gmail хаяг руу нэвтрэх нэр, нууц үг автоматаар илгээгдэх болно.
                 </p>
 
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 text-left max-w-sm mx-auto space-y-1.5">
@@ -223,7 +228,29 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">
-                    Утасны дугаар <span className="text-red-500">*</span>
+                    Gmail хаяг <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Жишээ: bagsh@gmail.com"
+                      className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      required
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Админ таны хүсэлтийг зөвшөөрөх үед энэхүү Gmail рүү нэвтрэх нэр, нууц үг очно.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Утасны дугаар (заавал биш)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
@@ -233,15 +260,10 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                       type="tel"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="8 оронтой дугаар (жишээ: 99xxxxxx)"
-                      maxLength={8}
+                      placeholder="Холбоо барих утас (жишээ: 99xxxxxx)"
                       className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      required
                     />
                   </div>
-                  <p className="text-[10px] text-stone-500 mt-1">
-                    Энэ дугаар луу админ зөвшөөрөх үед нэвтрэх нэр, нууц үг илгээгдэнэ.
-                  </p>
                 </div>
 
                 <div>
@@ -307,13 +329,13 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
               <form onSubmit={handleCheckStatus} className="flex space-x-2">
                 <div className="relative flex-1">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                    <Phone className="w-4 h-4" />
+                    <Mail className="w-4 h-4" />
                   </div>
                   <input
-                    type="tel"
-                    value={checkPhone}
-                    onChange={(e) => setCheckPhone(e.target.value)}
-                    placeholder="Утасны дугаараа оруулна уу"
+                    type="email"
+                    value={checkEmail}
+                    onChange={(e) => setCheckEmail(e.target.value)}
+                    placeholder="Gmail хаягаа оруулна уу"
                     className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs text-stone-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
                     required
                   />
@@ -330,7 +352,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                 <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl text-center space-y-1.5">
                   <p className="text-xs font-bold text-stone-700">Хүсэлт бүртгэгдээгүй байна</p>
                   <p className="text-[11px] text-stone-500">
-                    Энэ дугаараар нэвтрэх хүсэлт илгээгдээгүй байна. Та "Шинэ хүсэлт илгээх" цэсээр орж хүсэлтээ илгээнэ үү.
+                    Энэ Gmail хаягаар нэвтрэх хүсэлт илгээгдээгүй байна. Та "Шинэ хүсэлт илгээх" цэсээр орж хүсэлтээ илгээнэ үү.
                   </p>
                 </div>
               )}
@@ -340,7 +362,10 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-bold text-stone-900">{checkedResult.fullName}</h4>
-                      <p className="text-[11px] text-stone-500">Утас: {checkedResult.phoneNumber}</p>
+                      <p className="text-[11px] text-stone-500 flex items-center space-x-1 mt-0.5">
+                        <Mail className="w-3 h-3 text-stone-400" />
+                        <span>Gmail: {checkedResult.email}</span>
+                      </p>
                     </div>
 
                     {checkedResult.status === 'pending' && (
@@ -380,7 +405,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                         <span>Хугацаа: {formatRemainingTime(checkedResult.expiresAt)}</span>
                       </div>
                       <p className="text-[11px] text-amber-700 leading-relaxed">
-                        Админ таны хүсэлтийг хянаж байна. Зөвшөөрөгдөх үед системээс дугаар луу тань нэвтрэх нууц үг автоматаар очно.
+                        Админ таны хүсэлтийг хянаж байна. Зөвшөөрөх үед таны <strong>{checkedResult.email}</strong> хаяг руу нэвтрэх нэр, нууц үг очих болно.
                       </p>
                     </div>
                   )}
@@ -393,7 +418,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                         <span>Нэвтрэх эрх олгогдлоо!</span>
                       </div>
                       <div className="bg-white p-2.5 rounded-lg border border-emerald-200 font-mono text-xs text-stone-800 space-y-1">
-                        <div>Нэвтрэх утас: <strong>{checkedResult.phoneNumber}</strong></div>
+                        <div>Нэвтрэх нэр (Gmail): <strong>{checkedResult.email}</strong></div>
                         <div>Нэвтрэх нууц үг: <strong className="text-emerald-700">{checkedResult.generatedPassword}</strong></div>
                       </div>
 
@@ -401,7 +426,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            onAutoLogin(checkedResult.phoneNumber, checkedResult.generatedPassword!);
+                            onAutoLogin(checkedResult.email, checkedResult.generatedPassword!);
                             onClose();
                           }}
                           className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
@@ -423,7 +448,7 @@ export const RequestAccessModal: React.FC<RequestAccessModalProps> = ({
                         type="button"
                         onClick={() => {
                           setFullName(checkedResult.fullName);
-                          setPhoneNumber(checkedResult.phoneNumber);
+                          setEmail(checkedResult.email);
                           setActiveTab('request');
                         }}
                         className="text-xs font-bold text-amber-700 hover:text-amber-900 cursor-pointer"

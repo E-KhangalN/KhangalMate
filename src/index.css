@@ -112,3 +112,9 @@
     color: #000000 !important;
   }
 }
+
+@layer components {
+  .form-input {
+    @apply w-full min-h-12 rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-[15px] font-medium text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-amber-400 focus:bg-white focus:ring-4 focus:ring-amber-100;
+  }
+}

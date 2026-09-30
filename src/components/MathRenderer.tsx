@@ -18,29 +18,31 @@ export const MathRenderer: React.FC<MathRendererProps> = ({
     // If block is explicitly requested and content does not already have delimiters
     if (block && !content.includes('$')) {
       try {
-        return katex.renderToString(content, {
+        return katex.renderToString(content.trim(), {
           displayMode: true,
           throwOnError: false,
         });
       } catch {
-        return content;
+        return escapeHtml(content);
       }
     }
 
-    // Check if content contains LaTeX delimiters: $$...$$ or $...$ or \(...\)
-    const hasMathDelimiters = /\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\(.+?\\\)|\\\[.+?\\\]/.test(content);
+    // Check if content contains LaTeX delimiters: $$...$$ or $...$ or \(...\) or \[...\]
+    const hasMathDelimiters = /\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\(.+?\\\)|\\\[[\s\S]+?\\\]/.test(content);
 
     if (!hasMathDelimiters) {
-      // Check if it looks like pure LaTeX formula (contains \, ^, _, \frac, etc.)
-      const looksLikePureFormula = /\\(frac|sqrt|cdot|times|pm|in|subset|sum|int|lim|alpha|beta|pi|le|ge|neq|approx|mathbf|text)|[\^_{}]/.test(content);
+      // Check if it looks like a pure LaTeX formula or mathematical expression
+      // Contains typical LaTeX commands like \frac, \sqrt, \alpha, \pm, ^, _, \cdot, \begin, etc.
+      const looksLikePureFormula = /\\(frac|sqrt|cdot|times|div|pm|mp|in|subset|sum|int|lim|alpha|beta|gamma|theta|pi|le|ge|neq|approx|mathbf|text|vec|angle|sin|cos|tan|cot|log|ln|infty|Delta|to|leftarrow|rightarrow|over|left|right|begin|pmatrix|cases)|[\^_{}]/.test(content);
+      
       if (looksLikePureFormula) {
         try {
-          return katex.renderToString(content, {
+          return katex.renderToString(content.trim(), {
             displayMode: block,
             throwOnError: false,
           });
         } catch {
-          return content;
+          return escapeHtml(content);
         }
       }
       return escapeHtml(content);
